@@ -401,7 +401,7 @@ export default function PokemonList() {
     if (cached) {
       const parsed = JSON.parse(cached);
       if (now - parsed.timestamp < CACHE_TTL) {
-        memoryCache[key] = parsed; // atualiza memória
+        memoryCache[key] = parsed; 
         return parsed.data;
       }
     }
@@ -438,25 +438,38 @@ export default function PokemonList() {
   const fetchPokemons = async (pageOffset: number) => {
     try {
       setLoading(true);
+
       const cacheKey = `pokemons_${pageOffset}`;
+
+      // [NOVO] Verifica se existe cache antes de buscar na API
       const cached = await getCachedData(cacheKey);
       if (cached) {
+        // [NOVO] Aproveita a lista cacheada
         setPokemons(prev => [...prev, ...cached]);
-        if (!isOffline) refreshPokemonsInBackground(pageOffset); // refresh em background
+
+        // [NOVO] Mesmo usando cache, tenta atualizar em background se tiver internet
+        if (!isOffline) refreshPokemonsInBackground(pageOffset);
+
         return;
       }
 
+      // [NOVO] Bloqueia a busca se estiver offline
       if (isOffline) {
         Alert.alert("Offline", "Você está offline e não há cache disponível.");
         return;
       }
 
-      const res = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=${PAGE_LIMIT}&offset=${pageOffset}`);
+      const res = await fetch(
+        `https://pokeapi.co/api/v2/pokemon?limit=${PAGE_LIMIT}&offset=${pageOffset}`
+      );
       const data = await res.json();
+
       const results: Pokemon[] = [];
 
+      // [NOVO] Limita requisições concorrentes (evita travar a UI)
       for (let i = 0; i < data.results.length; i += MAX_CONCURRENT_FETCHES) {
         const chunk = data.results.slice(i, i + MAX_CONCURRENT_FETCHES);
+
         const promises = chunk.map(async (p: Pokemon) => {
           try {
             const res = await fetch(p.url);
@@ -466,10 +479,13 @@ export default function PokemonList() {
             return { ...p, types: [] };
           }
         });
+
         results.push(...(await Promise.all(promises)));
       }
 
       setPokemons(prev => [...prev, ...results]);
+
+      // [NOVO] Salva no cache
       setCache(cacheKey, results);
     } catch (err) {
       console.error("Erro ao buscar pokémons:", err);
@@ -481,12 +497,18 @@ export default function PokemonList() {
   // --- Refresh em background ---
   const refreshPokemonsInBackground = async (pageOffset: number) => {
     try {
-      const res = await fetch(`https://pokeapi.co/api/v2/pokemon?limit=${PAGE_LIMIT}&offset=${pageOffset}`);
+      // [NOVO] Revalida os dados sem travar a interface
+      const res = await fetch(
+        `https://pokeapi.co/api/v2/pokemon?limit=${PAGE_LIMIT}&offset=${pageOffset}`
+      );
       const data = await res.json();
+
       const results: Pokemon[] = [];
 
+      // [NOVO] Também usa o limitador de requisições aqui
       for (let i = 0; i < data.results.length; i += MAX_CONCURRENT_FETCHES) {
         const chunk = data.results.slice(i, i + MAX_CONCURRENT_FETCHES);
+
         const promises = chunk.map(async (p: Pokemon) => {
           try {
             const res = await fetch(p.url);
@@ -496,9 +518,11 @@ export default function PokemonList() {
             return { ...p, types: [] };
           }
         });
+
         results.push(...(await Promise.all(promises)));
       }
 
+      // [NOVO] Atualiza somente o cache sem alterar tela
       setCache(`pokemons_${pageOffset}`, results);
     } catch {
       // fail silently
@@ -512,31 +536,53 @@ export default function PokemonList() {
   useEffect(() => {
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
 
+    // [NOVO] Debounce de 300ms para não filtrar a cada digitação
     searchTimeout.current = setTimeout(() => {
       let list = pokemons;
-      if (search) list = list.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
-      if (selectedType) list = list.filter(p => p.types?.includes(selectedType));
+
+      if (search)
+        list = list.filter(p =>
+          p.name.toLowerCase().includes(search.toLowerCase())
+        );
+
+      if (selectedType)
+        list = list.filter(p => p.types?.includes(selectedType));
+
       setFilteredPokemons(list);
     }, 300);
 
-    return () => searchTimeout.current && clearTimeout(searchTimeout.current);
+    return () =>
+      searchTimeout.current && clearTimeout(searchTimeout.current);
   }, [search, selectedType, pokemons]);
 
-  const handleEndReached = () => { if (!loading) setOffset(prev => prev + PAGE_LIMIT); };
+  const handleEndReached = () => {
+    if (!loading) setOffset(prev => prev + PAGE_LIMIT);
+  };
 
   // --- Carrossel de tipos ---
   const TypeCarousel = () => (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeFilterContainer}>
+      {/* [NOVO] Botão "Todos" com estilo próprio */}
       <TouchableOpacity
-        style={[styles.typeButton, selectedType === null && styles.typeButtonSelected, { backgroundColor: selectedType === null ? '#af0000ff' : '#777' }]}
+        style={[
+          styles.typeButton,
+          selectedType === null && styles.typeButtonSelected,
+          { backgroundColor: selectedType === null ? "#af0000ff" : "#777" },
+        ]}
         onPress={() => setSelectedType(null)}
       >
         <Text style={styles.typeButtonText}>Todos</Text>
       </TouchableOpacity>
+
+      {/* Tipos vindos da API */}
       {types.map(t => (
         <TouchableOpacity
           key={t}
-          style={[styles.typeButton, selectedType === t && styles.typeButtonSelected, { backgroundColor: TYPE_COLORS[t] || '#777' }]}
+          style={[
+            styles.typeButton,
+            selectedType === t && styles.typeButtonSelected,
+            { backgroundColor: TYPE_COLORS[t] || "#777" },
+          ]}
           onPress={() => setSelectedType(t)}
         >
           <Text style={styles.typeButtonText}>{t}</Text>
@@ -547,6 +593,8 @@ export default function PokemonList() {
 
   return (
     <View style={styles.container}>
+      
+      {/* [NOVO] Aviso de offline */}
       {isOffline && <Text style={styles.offlineText}>Você está offline</Text>}
 
       <View style={styles.header}>
@@ -566,13 +614,19 @@ export default function PokemonList() {
 
       <View style={styles.pokemonListContainer}>
         <Text style={styles.title}>Pokémons</Text>
+
         <FlatList
           data={filteredPokemons}
           keyExtractor={item => item.name}
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.item}
-              onPress={() => router.push({ pathname: "/detalhes/[id]", params: { name: item.name } })}
+              onPress={() =>
+                router.push({
+                  pathname: "/detalhes/[id]",
+                  params: { name: item.name },
+                })
+              }
             >
               <Text style={styles.name}>{item.name.toUpperCase()}</Text>
               <Text style={styles.types}>{item.types?.join(", ")}</Text>
@@ -580,7 +634,9 @@ export default function PokemonList() {
           )}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loading ? <ActivityIndicator size="large" color="#af0000ff" /> : null}
+          ListFooterComponent={
+            loading ? <ActivityIndicator size="large" color="#af0000ff" /> : null
+          }
         />
       </View>
     </View>
